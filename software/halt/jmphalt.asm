@@ -7,7 +7,7 @@ org 0xFE000
   hlt
   
 ; pad up to 0xFFFF0
-  times (0xFFFF0 - 0xFE000) db 0
+  times (0xFFFF0 - 0xFE000) - ($ - $$) db 0
 
 
 ; we are now at 0xFFFF0, the reset vector
