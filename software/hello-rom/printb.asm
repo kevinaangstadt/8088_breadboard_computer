@@ -1,6 +1,8 @@
 ; set up the PIO Port B for output
-; Configure the LCD for 4-bit mode
+; Configure the LCD for 8-bit mode
 ; Output a "B" to the LCD
+
+BITS 16
 
 ; NOTE: the PIO lives at IO port 0x4000
 ; address 0x00 PORT A
@@ -17,12 +19,115 @@ PORTB equ 0x4001
 PORTC equ 0x4002
 CTRL equ 0x4003
 
-BITS 16
+
 
 ; the upper ROM chip starts at address 0xFE000
 org 0xFE000
 
   ; set up GROUP A/B for MODE 0 output
+  mov al, 0b10000000
+  mov dx, CTRL
+  out dx, al
+
+  ; See the LCD datasheet for the initialization sequence
+  ; Figure 23 on page 45 of the HD44780U datasheet for 8-Bit Interface Initialization
+
+  ; busy wait for 40ms to allow the LCD to power up
+  ; at 8Mhz, 1 cycle is 125ns meaning we need to busy wait for 320,000 cycles
+  ; 320,000 cycles / 4 cycles per loop = 80,000 loops
+  mov cx, 12000  ; 40000 loops
+delay_loop1:
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  loop delay_loop1 ; 17 cycles to decrement and jump if not zero
+
+  ; initialize with 8-bit mode with 3 commands 0x00110000
+  mov al, 0b00110000
+  mov dx, PORTB
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction (more than 4.1ms)
+  ; at 8Mhz, 1 cycle is 125ns meaning we need to busy wait for at least 32,800 cycles
+  ; we will busy wait for 40,000 cycles
+  mov cx, 1200  ; 10000 loops
+delay_loop2:
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  loop delay_loop2 ; 17 cycles
+
+  ; initialize a second time with 8-bit mode with 3 commands 0x00110000
+  mov al, 0b00110000
+  mov dx, PORTB
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction (more than 100us)
+  ; at 8Mhz, 1 cycle is 125ns meaning we need to busy wait for at least 800 cycles
+  ; we will busy wait for 1000 cycles
+  mov cx, 35    ; 34 loops
+delay_loop3:
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  nop            ; 4 cycle
+  loop delay_loop3 ; 17 cycles
+
+  ; initialize a third and final time time with 8-bit mode with 3 commands 0x00110000
+  mov al, 0b00110000
+  mov dx, PORTB
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction
+  ; set PORT B to input
+  mov al, 0b10000010
+  mov dx, CTRL
+  out dx, al
+wait6:
+  mov al, RW
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E | RW
+  out dx, al
+  ; read the busy flag
+  mov dx, PORTB
+  in al, dx
+  and al, 0x80
+  jne wait6
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set PORT B back to output
   mov al, 0b10000000
   mov dx, CTRL
   out dx, al
@@ -187,7 +292,6 @@ wait4:
   mov dx, CTRL
   out dx, al
 
-printb:
   ; send an ASCII "B" to the LCD
   mov al, 'B'
   mov dx, PORTB
@@ -230,9 +334,6 @@ wait5:
   mov al, 0b10000000
   mov dx, CTRL
   out dx, al
-
-  ; print another B
-  jmp printb
 
   ; output 0s to PORT B
   mov al, 0

@@ -1,4 +1,4 @@
-progs = printb
+progs = printb hello-rom hello-improved
 
 all: $(addsuffix .bin, $(progs))
 
