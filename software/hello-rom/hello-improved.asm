@@ -310,8 +310,11 @@ delay_loop4:
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Print "Hello, World!" to the LCD                                             ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ; set the DS to the start of ROM
+  mov ax, 0xFE00
+  mov ds, ax
   ; set SI to the address of the string
-  lea si, [hello_str]
+  mov si, hello_str
 print_loop:
   ; load the character into AL
   lodsb
