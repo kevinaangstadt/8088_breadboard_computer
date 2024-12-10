@@ -3,10 +3,10 @@ progs = printb hello-rom hello-improved
 all: $(addsuffix .bin, $(progs))
 
 %.bin: %.asm
-	nasm -f bin $< -o $@
+	nasm -f bin $< -o $@ -l $(basename $@).lst
 
 clean:
-	rm -f *.bin
+	rm -f *.bin *.lst
 
 %.upload: %.bin
 	minipro -p AT28C64B -uP -w $<
