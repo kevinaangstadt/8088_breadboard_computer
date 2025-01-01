@@ -22,7 +22,7 @@ PORTC equ 0x4002
 CTRL equ 0x4003
 
 ; the upper ROM chip starts at address 0xFE000
-org 0xFE000
+;org 0xFE000
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize the LCD                                                           ;
@@ -311,17 +311,22 @@ delay_loop4:
 ; Print "Hello, World!" to the LCD                                             ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ; set the DS to the start of ROM
-  mov ax, 0xFE00
+  ; note that we do this by clearing ax and then or-ing with 0xFE00
+  ; if we used a mov instruction, it would be a 16-bit immediate value
+  ; that gets loaded in little endian order, so we would need to do:
+  ; mov ax, 0x00FE
+
+  xor ax, ax
+  or ax, 0xFE00
   mov ds, ax
   ; set SI to the address of the string
   mov si, hello_str
 print_loop:
   ; load the character into AL
   lodsb
+
   ; if AL is 0, we're done
-  ; this bit-wise and's the AL register against itself
-  ; and sets the zero flag if the result is zero
-  test al, al
+  cmp al, 0
   jz done
 
   ; write the character to the LCD

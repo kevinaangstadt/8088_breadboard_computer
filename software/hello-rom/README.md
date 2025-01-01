@@ -1,9 +1,5 @@
 # LCD Bring-Up Assembly Programs
 
-> [!CAUTION]
-> This directory is still a work in progress. Things are subject to change
-> without warning.
-
 This directory contains slightly more sophisticated programs that will start to
 perform input/output. It will require the following to be working:
 
@@ -31,7 +27,15 @@ for a discussion of why this is necessary.
 You should see a B print out with the cursor at the next cell.
 
 ## Hello-rom.asm
-This program isn't fancy. It just extends `Printb.asm` to print the usual "Hello, World!" message.
+This program isn't fancy. It just extends `Printb.asm` to print the usual
+"Hello, World!" message.
+
+You should see "Hello, World!" print out with the cursor at the next cell.
+
+## Hello-improved.asm
+Now, we try to do some more sophisticated things, namely loop to read data from
+memory to print out. It should behave identically to `Hello.asm`. In theory,
+nothing special is needed to make this work.
 
 
 # Making and Uploading
