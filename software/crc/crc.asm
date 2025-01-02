@@ -14,7 +14,6 @@ BITS 16
 E equ 0x01
 RS equ 0x04
 RW equ 0x02
-STRB equ 0x08
 
 PORTA equ 0x4000
 PORTB equ 0x4001
@@ -23,6 +22,10 @@ CTRL equ 0x4003
 
 ; the upper ROM chip starts at address 0xFE000
 ; org 0xFE000
+
+; Rather than use ORG, we will set the DS register to 0xFE00 so that we can
+; start from address 0x0000 here.
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize the LCD                                                           ;
@@ -323,9 +326,7 @@ wait4:
   mov si, 0x0
 
   ; Set the ending address of the ROM
-  ; little endian so 0x1FFE is 0xFE1F
-  ;mov di, 0x1FFE
-  mov di, 8190
+  mov di, 0x1FFE
 crc_loop: 
   ; XOR the byte with the CRC register
   xor al, [ds:si]
@@ -360,18 +361,15 @@ no_xor:
   jne error
 
   mov si, passed_str
-  jmp output_result
+  jmp print_loop
 
 error:
   mov si, failed_str
 
-output_result:
-
+  ; print the result in bx as ASCII
   mov cx, 16
 
 print_crc:
-
-  ; print the result in bx as ASCII
   ; get the upper nibble and add '0'
   mov ax, bx
   sub cx, 4
@@ -512,8 +510,8 @@ done:
   ; halt the CPU
   hlt  
 
-passed_str: db 0xa, "CRC Passed", 0
-failed_str: db 0xa, "CRC Failed", 0
+passed_str: db "CRC Passed", 0
+failed_str: db " CRC Failed", 0
 
   ; pad up to 0xFFFF0
   times (0xFFFF0 - 0xFE000) - ($ - $$) db 0
