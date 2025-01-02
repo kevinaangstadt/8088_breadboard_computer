@@ -22,7 +22,7 @@ PORTC equ 0x4002
 CTRL equ 0x4003
 
 ; the upper ROM chip starts at address 0xFE000
-;org 0xFE000
+; org 0xFE000
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Initialize the LCD                                                           ;
@@ -353,7 +353,7 @@ no_xor:
   mov bx, ax
 
   ; compare with the CRC value stored at 0xFFFFE
-  mov si, 0xFE1F
+  mov si, 0x1FFE
   mov ax, [ds:si]
 
   cmp ax, bx
