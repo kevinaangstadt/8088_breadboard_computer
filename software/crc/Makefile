@@ -2,13 +2,14 @@ progs = crc
 
 # https://stackoverflow.com/a/23324703
 mkfile_path := $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST))))
+util_path := $(mkfile_path)/../util
 
 all: $(addsuffix .bin, $(progs))
 
 %.bin: %.asm
 	nasm -f bin $< -o $@ -l $(basename $@).lst
-	python3 $(mkfile_path)/crc_calc.py $@ > $(basename $@).crc
-	printf $$(python3 $(mkfile_path)/crc_calc.py -l -n $@ | cut -dx -f2 | sed 's/../\\x&/g') >> $@
+	python3 $(util_path)/crc_calc.py $@ > $(basename $@).crc
+	printf $$(python3 $(util_path)/crc_calc.py -l -n $@ | cut -dx -f2 | sed 's/../\\x&/g') >> $@
 	
 
 clean:
