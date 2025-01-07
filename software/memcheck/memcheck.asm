@@ -359,6 +359,7 @@ crc_no_xor:
 
   cmp ax, bx
   jne crc_error
+  ; start the memcheck if we pass the CRC check
   jmp memcheck
 
 crc_error:
@@ -511,7 +512,6 @@ crc_done:
 ; Perform a Check of the RAM                                                   ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 memcheck:
-
   ; Valid addresses for RAM are 0x00000 to 0xFBFFF
   
   ; Do first 4KiB separately so we can use it for the stack once it is verified
@@ -524,114 +524,36 @@ memcheck:
   xor ax, ax
   mov ds, ax
 
+  ; set the ES to the ROM
+  xor ax, ax
+  or ax, 0xF000
+  mov es, ax
+
 memcheck_loop:
-  ; write AA to the RAM
-  mov al, 0xAA
+  ; set bx to the base address of the patterns
+  mov bx, memcheck_patterns
+
+  ; set cx to 0
+  xor cx, cx
+
+memcheck_pattern_loop:
+  ; write pattern to the RAM
+  mov al, [es:bx]
   mov [ds:si], al
+  ; copy the value to dl
+  ; mov dl, [es:bx]
   ; read the RAM
-  mov al, [ds:si]
+  mov dl, [ds:si]
   ; compare the RAM with AA
-  cmp al, 0xAA
+  cmp al, dl
   jne memcheck_error
 
-  ; write 55 to the RAM
-  mov al, 0x55
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 55
-  cmp al, 0x55
-  jne memcheck_error
+  inc bx
+  inc cx
 
-  ; write 00 to the RAM
-  mov al, 0x00
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 00
-  cmp al, 0x00
-  jne memcheck_error
-
-  ; write FF to the RAM
-  mov al, 0xFF
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with FF
-  cmp al, 0xF
-  jne memcheck_error
-
-  ; write 01 to the RAM
-  mov al, 0x01
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 01
-  cmp al, 0x01
-  jne memcheck_error
-
-  ; write 02 to the RAM
-  mov al, 0x02
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 02
-  cmp al, 0x02
-  jne memcheck_error
-
-  ; write 04 to the RAM
-  mov al, 0x04
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 04
-  cmp al, 0x04
-  jne memcheck_error
-
-  ; write 08 to the RAM
-  mov al, 0x08
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 08
-  cmp al, 0x08
-  jne memcheck_error
-
-  ; write 10 to the RAM
-  mov al, 0x10
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 10
-  cmp al, 0x10
-  jne memcheck_error
-
-  ; write 20 to the RAM
-  mov al, 0x20
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 20
-  cmp al, 0x20
-  jne memcheck_error
-
-  ; write 40 to the RAM
-  mov al, 0x40
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 40
-  cmp al, 0x40
-  jne memcheck_error
-
-  ; write 80 to the RAM
-  mov al, 0x80
-  mov [ds:si], al
-  ; read the RAM
-  mov al, [ds:si]
-  ; compare the RAM with 80
-  cmp al, 0x80
-  jne memcheck_error
+  ; check that cx < 12
+  cmp cx, 12
+  jl memcheck_pattern_loop
 
   ; increment the address
   inc si
@@ -640,9 +562,35 @@ memcheck_loop:
   cmp si, di
   jbe memcheck_loop
 
+  ; halt
+  jmp memcheck_remaining_blocks
+
+memcheck_error:
+  ; print an E to the LCD
+  mov al, 'E'
+  ; write the character to the LCD
+  mov dx, PORTB
+  out dx, al
+  ; set RS bit to send data
+  mov al, RS
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send data
+  mov al, RS | E
+  out dx, al
+  ; clear E bit
+  mov al, RS
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  jmp halt
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; First 4KiB RAM has been verified, so we can use it for the stack             ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+memcheck_remaining_blocks:
   ; set up the stack
   xor ax, ax
   mov ss, ax
@@ -651,10 +599,27 @@ memcheck_loop:
   mov sp, 0x1000
   mov bp, sp
 
+  ; set DS to ROM
+  xor ax, ax
+  or ax, 0xF000
+  mov ds, ax
+
   ; print that we have verified the first 4KiB of RAM
   call fn_clear_lcd
-  mov al, '4'
-  call fn_print_char
+
+  ; store number of 4KiB blocks verified
+  mov ax, 1
+
+  ; store ax to stack
+  push ax
+
+  ; multiply number of blocks by 4KiB
+  ; we need to multiply by 4, so we can just shift left by 2
+  shl ax, 1
+  shl ax, 1
+
+  call fn_print_int
+
   mov ax, memcheck_str
   call fn_print_str
 
@@ -670,11 +635,12 @@ memcheck_block_loop:
 
   push cx
 
-  ; push the start address (0x1000 * (15-cx))
+  ; push the start address (0x1000 * (16-cx))
   xor ax, ax
-  mov ax, 15
+  mov ax, 16
   sub ax, cx
-  shl ax, 12
+  mov cx, 12
+  shl ax, cl
   push ax
 
   ; push the data segment
@@ -685,39 +651,34 @@ memcheck_block_loop:
   call fn_memcheck_4kb
 
   ; pop the data segment
-  add sp, 2
+  pop ax
 
   ; pop the start address
   pop ax
 
-  pop cx
-
   ; print our progress
   call fn_clear_lcd
-  ; (17 - CX) * 4KiB is what we have validated
-  ; get the 10s digit
-  mov ax, 17
-  sub ax, cx
-  shl ax, 12
 
-  push ax ; save ax
+  pop cx
+  
+  ; print the number of blocks verified
+  ; increment the number of blocks verified
+  pop ax
+  inc ax
+  push ax
 
-  ; get the 10s digit
-  mov bl, 10
-  div bl
-  add al, '0'
-  call fn_print_char
+  push cx
 
-  ; get the 1s digit
-  pop ax ; restore ax
-  mov bl, 10
-  div bl
-  add al, '0'
-  call fn_print_char
+  ; print the number of blocks verified
+  shl ax, 1
+  shl ax, 1
+  call fn_print_int
 
   ; print " KiB RAM Verified"
   mov ax, memcheck_str
   call fn_print_str
+
+  pop cx
 
   ; repeat
   loop memcheck_block_loop
@@ -725,13 +686,17 @@ memcheck_block_loop:
   ; we are done...halt!
   mov ax, memcheck_passed_str
   call fn_print_str
-  jmp halt
+
+  pop ax
+
+  
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Function to check a 4KiB block of RAM                                        ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 fn_memcheck_4kb:
   ; function for checking the RAM at a specific 4KiB block
+  ; bp + 0: old bp
   ; bp + 2: return address
   ; bp + 4: data segment
   ; bp + 6: start address
@@ -760,6 +725,8 @@ fn_memcheck_4kb:
   mov ds, [bp + 4]
   mov si, [bp + 6]
 
+  mov ax, si
+
   ; set the ending address of the RAM block
   mov di, si
   add di, 0xFFF
@@ -783,7 +750,7 @@ memcheck_4kb_pattern_loop:
   mov al, [ds:si]
   ; compare the RAM with the pattern
   cmp al, [es:bx]
-  jne memcheck_error
+  jne halt
 
   ; decrement the pattern counter
   loop memcheck_4kb_pattern_loop
@@ -803,8 +770,6 @@ memcheck_4kb_pattern_loop:
   pop bp
   ret
 
-
-memcheck_error:
 halt:
   ; halt the CPU
   hlt  
@@ -883,7 +848,7 @@ fn_wait_lcd_p1:
   mov dx, PORTB
   in al, dx
   and al, 0x80
-  jne fn_wait_lcd
+  jne fn_wait_lcd_p1
   mov al, 0
   mov dx, PORTC
   out dx, al
@@ -927,12 +892,102 @@ fn_clear_lcd:
   ; wait for the LCD to process the instruction
   call fn_wait_lcd
 
+  ; move the cursor to the home position
+  mov al, 0b00000010
+  mov dx, PORTB
+  out dx, al
+
+  ; clear RS/RW/E bits
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction
+  call fn_wait_lcd
+
+  ; return
+  ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function to print an integer to the LCD                                      ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_print_int:
+  ; save the integer
+  push ax
+
+  ; check if the integer is negative
+  test ax, 0x8000
+  jz fn_print_int_positive
+
+  ; print a '-'
+  mov al, '-'
+  call fn_print_char
+
+  ; negate the integer
+  neg ax
+
+  
+
+fn_print_int_positive:
+  ; print the integer
+  mov cx, 10
+  
+
+  ; keep count of digits in bx
+  xor bx, bx
+
+fn_print_int_loop:
+  ; clear the remainder register
+  xor dx, dx
+
+  ; divide the integer by 10
+  div cx
+
+  ; push the remainder onto the stack
+  push dx
+
+  ; increment the digit count
+  inc bx
+
+  ; check if the quotient is 0
+  cmp ax, 0
+  jnz fn_print_int_loop
+
+fn_print_int_print_loop:
+  ; pop the remainder from the stack
+  pop ax
+
+  ; decrement the digit count
+  dec bx
+
+  ; add '0' to the remainder
+  add al, '0'
+
+  push bx
+  ; print the character
+  call fn_print_char
+  pop bx
+
+  ; check if the digit count is 0
+  cmp bx, 0
+  jnz fn_print_int_print_loop
+
+  ; restore the integer
+  pop ax
+
   ; return
   ret
 
 
 crc_failed_str: db " CRC Failed", 0
-memcheck_str: db " KiB RAM Verified", 0
+memcheck_str: db " KiB Verified", 0
 memcheck_passed_str: db "Memcheck Passed", 0
 memcheck_patterns: db 0xAA, 0x55, 0x00, 0xFF, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x00
 
