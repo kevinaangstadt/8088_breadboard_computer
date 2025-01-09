@@ -624,7 +624,14 @@ memcheck_remaining_blocks:
   call fn_print_str
 
   ; check the rest of the RAM
-  ; there are 251 4KiB blocks of RAM left to check
+
+  ; first segment to check
+  ; note we start checking from 0x1000 since we have already checked the first 4KiB
+  mov si, 0x0000
+  ; last segment to check
+  ; note we only have to go up to 0xBFFF since the rest is ROM
+  ;mov di, 0xF000
+  mov di, 0x1000
 
   ; however, we'll just deal with the ones in the current data
   ; segment...otherwise, it'll get messy...so there are 15 blocks for us to do
@@ -633,32 +640,46 @@ memcheck_remaining_blocks:
 memcheck_block_loop:
   ; call the function to check the RAM at a specific 4KiB block
 
+  ; back up our loop value
   push cx
+
+  ; store base pointer
+  push bp
+  mov bp, sp 
 
   ; push the start address (0x1000 * (16-cx))
   xor ax, ax
+  cmp si, di
+  je memcheck_final_segment
   mov ax, 16
+  jmp memcheck_segment_calc
+
+memcheck_final_segment:
+  ; there are only 12 blocks to check in the final segment
+  mov ax, 12
+
+memcheck_segment_calc:
   sub ax, cx
   mov cx, 12
   shl ax, cl
   push ax
 
   ; push the data segment
-  xor ax, ax
-  push ax
-  
+  push si
+
   ; call the function
   call fn_memcheck_4kb
 
-  ; pop the data segment
-  pop ax
+  ; pop the arguments
+  add sp, 4
 
-  ; pop the start address
-  pop ax
+  ; restore bp
+  pop bp
 
   ; print our progress
   call fn_clear_lcd
 
+  ; restore cx
   pop cx
   
   ; print the number of blocks verified
@@ -679,9 +700,62 @@ memcheck_block_loop:
   call fn_print_str
 
   pop cx
-
+  
   ; repeat
   loop memcheck_block_loop
+
+  ; we have finished a segment
+  add si, 0x1000
+  ; if there is a carry, we have finished all the segments
+  jc memory_check_done
+
+  cmp si, di
+  je memcheck_set_cx_last_segment
+  ja memory_check_done
+
+  ; set cx to 16
+  mov cx, 16
+
+  jmp memcheck_block_loop
+
+memcheck_set_cx_last_segment:
+  ; set cx to 12
+  mov cx, 12
+
+  ; jump if below or equal
+  jmp memcheck_block_loop
+
+memory_check_done:
+  ; I do not trust that I wrote this code correctly, so let's check something 
+  ; in segment 0xF000 to see if it has the last memory pattern
+  mov al, 'D'
+  call fn_print_char
+
+  mov ax, 0x1000
+  mov es, ax
+
+  mov ax, 0xF000
+  mov ds, ax
+
+  ; set si to 0xABCD...just something arbitrary
+  mov si, 0x0000
+
+  ; read the address
+  mov al, [es:si]
+
+  ; check if it is the last memory pattern
+  ; set bx to the base address of the patterns
+  mov si, memcheck_patterns + 11
+  mov bl, [ds:si]
+
+  ; halt and don't print the success message if the pattern fails to match
+  cmp al, bl
+  jne output_al_bl
+
+  ; print that we have verified all the RAM
+  ; on the second line
+  mov al, 0x40
+  call fn_lcd_move_cursor
 
   ; we are done...halt!
   mov ax, memcheck_passed_str
@@ -689,23 +763,26 @@ memcheck_block_loop:
 
   pop ax
 
-  
+  jmp halt  
+
+output_al_bl:
+  mov dx, PORTA
+  out dx, al
+
+  mov dx, PORTB
+  mov al, bl
+  out dx, al
+
+  jmp halt
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Function to check a 4KiB block of RAM                                        ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 fn_memcheck_4kb:
   ; function for checking the RAM at a specific 4KiB block
-  ; bp + 0: old bp
-  ; bp + 2: return address
-  ; bp + 4: data segment
-  ; bp + 6: start address
-  
-  ; back up bp
-  push bp
-
-  ; set bp to the current stack frame
-  mov bp, sp
+  ; bp - 2: start address
+  ; bp - 4: data segment
+  ; bp - 6: return address
 
   ; back up the data segment
   push ds
@@ -722,8 +799,8 @@ fn_memcheck_4kb:
   push si
   push di
 
-  mov ds, [bp + 4]
-  mov si, [bp + 6]
+  mov ds, [bp - 2]
+  mov si, [bp]
 
   mov ax, si
 
@@ -735,14 +812,12 @@ fn_memcheck_4kb:
 memcheck_4kb_loop:
 
   ; set up CX to loop through the patterns
-  mov cx, 12
+  mov cx, 0
+  mov bx, memcheck_patterns
 
   ; loop through the patterns
 memcheck_4kb_pattern_loop:
   ; write the pattern to the RAM
-  ; location is determined by the pattern counter - 1 
-  mov bx, memcheck_patterns - 1
-  add bx, cx
 
   mov al, [es:bx]
   mov [ds:si], al
@@ -750,10 +825,14 @@ memcheck_4kb_pattern_loop:
   mov al, [ds:si]
   ; compare the RAM with the pattern
   cmp al, [es:bx]
-  jne halt
+  jne output_al_bl
 
-  ; decrement the pattern counter
-  loop memcheck_4kb_pattern_loop
+  inc cx
+  inc bx
+
+  ; check if cx < 12
+  cmp cx, 12
+  jl memcheck_4kb_pattern_loop
 
   ; increment the address
   inc si
@@ -767,8 +846,11 @@ memcheck_4kb_pattern_loop:
   pop si
   pop es
   pop ds
-  pop bp
   ret
+
+memcheck_4kb_pattern_failed:
+  mov bl, [es:bx]
+  jmp output_al_bl
 
 halt:
   ; halt the CPU
@@ -778,6 +860,7 @@ halt:
 ; Print String Function                                                        ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 fn_print_str:
+  push si
   ; load the address of the string into SI
   mov si, ax
 
@@ -796,6 +879,7 @@ fn_print_str_print_loop:
   jmp fn_print_str_print_loop
 
 fn_print_str_done:
+  pop si
   ; return
   ret
 
@@ -914,6 +998,37 @@ fn_clear_lcd:
   ; return
   ret
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function to move the cursor to a specific position on the LCD                ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_lcd_move_cursor:
+  ; al stores the position
+  ; 0x00 - 0x0F: first line
+  ; 0x40 - 0x4F: second line
+  ; and with 0x7F to ensure that the position is within the bounds of the LCD
+  and al, 0x7F
+  ; or with 0x80 to set the bit indicating that we're setting DDRAM
+  or al, 0x80
+
+  ; write the command to the LCD
+  mov dx, PORTB
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  mov dx, PORTC
+  out dx, al
+  ; set E bit to send instruction
+  mov al, E
+  out dx, al
+  ; clear RS/RW/E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction
+  call fn_wait_lcd
+  ret
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; function to print an integer to the LCD                                      ;
@@ -951,6 +1066,7 @@ fn_print_int_loop:
   div cx
 
   ; push the remainder onto the stack
+  add dl, '0'
   push dx
 
   ; increment the digit count
@@ -968,7 +1084,7 @@ fn_print_int_print_loop:
   dec bx
 
   ; add '0' to the remainder
-  add al, '0'
+  ; add al, '0'
 
   push bx
   ; print the character
@@ -987,7 +1103,7 @@ fn_print_int_print_loop:
 
 
 crc_failed_str: db " CRC Failed", 0
-memcheck_str: db " KiB Verified", 0
+memcheck_str: db "KiB Verified", 0
 memcheck_passed_str: db "Memcheck Passed", 0
 memcheck_patterns: db 0xAA, 0x55, 0x00, 0xFF, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x00
 
