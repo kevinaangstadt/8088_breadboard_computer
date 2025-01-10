@@ -630,8 +630,7 @@ memcheck_remaining_blocks:
   mov si, 0x0000
   ; last segment to check
   ; note we only have to go up to 0xBFFF since the rest is ROM
-  ;mov di, 0xF000
-  mov di, 0x1000
+  mov di, 0xF000
 
   ; however, we'll just deal with the ones in the current data
   ; segment...otherwise, it'll get messy...so there are 15 blocks for us to do
@@ -728,20 +727,14 @@ memcheck_set_cx_last_segment:
 memory_check_done:
   ; I do not trust that I wrote this code correctly, so let's check something 
   ; in segment 0xF000 to see if it has the last memory pattern
-  mov al, 'D'
-  call fn_print_char
-
-  mov ax, 0x1000
-  mov es, ax
-
   mov ax, 0xF000
   mov ds, ax
 
   ; set si to 0xABCD...just something arbitrary
-  mov si, 0x0000
+  mov si, 0xABCD
 
   ; read the address
-  mov al, [es:si]
+  mov al, [ds:si]
 
   ; check if it is the last memory pattern
   ; set bx to the base address of the patterns
@@ -750,7 +743,7 @@ memory_check_done:
 
   ; halt and don't print the success message if the pattern fails to match
   cmp al, bl
-  jne output_al_bl
+  jne halt
 
   ; print that we have verified all the RAM
   ; on the second line
@@ -799,10 +792,8 @@ fn_memcheck_4kb:
   push si
   push di
 
-  mov ds, [bp - 2]
-  mov si, [bp]
-
-  mov ax, si
+  mov ds, [bp - 4]
+  mov si, [bp - 2]
 
   ; set the ending address of the RAM block
   mov di, si
@@ -825,7 +816,7 @@ memcheck_4kb_pattern_loop:
   mov al, [ds:si]
   ; compare the RAM with the pattern
   cmp al, [es:bx]
-  jne output_al_bl
+  jne memcheck_4kb_pattern_failed
 
   inc cx
   inc bx
@@ -834,13 +825,16 @@ memcheck_4kb_pattern_loop:
   cmp cx, 12
   jl memcheck_4kb_pattern_loop
 
-  ; increment the address
-  inc si
+  ; increment the address (use add not inc because it allows for CF to be set)
+  add si, 1
+  ; when we do 0xFFFF, we will wrap around to 0x0000, which breaks the loop
+  jc memcheck_4kb_pattern_passed
 
   ; check if we have reached the end of the 4KiB block
   cmp si, di
   jbe memcheck_4kb_loop
 
+memcheck_4kb_pattern_passed:
   ; restore
   pop di
   pop si
@@ -849,9 +843,6 @@ memcheck_4kb_pattern_loop:
   ret
 
 memcheck_4kb_pattern_failed:
-  mov bl, [es:bx]
-  jmp output_al_bl
-
 halt:
   ; halt the CPU
   hlt  
