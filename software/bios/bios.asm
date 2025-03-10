@@ -26,30 +26,62 @@ reset:
   ; it is located in the last two bytes of the BIOS
   %include "post_crc.asm"
 
-  ; DEBUG
-  ; print P and halt to see if we made it this far
-  mov al, 'P'
-  ; write the character to the LCD
-  mov dx, PIO_PORTB
-  out dx, al
-  ; set LCD_RS bit to send data
-  mov al, LCD_RS
-  mov dx, PIO_PORTC
-  out dx, al
-  ; set LCD_E bit to send data
-  mov al, LCD_RS | LCD_E
-  out dx, al
-  ; clear LCD_E bit
-  mov al, LCD_RS
-  out dx, al
-  ; clear LCD_RS/LCD_RW/LCD_E bits
-  mov al, 0
-  out dx, al
+  ; step 4
+  ; base 16K memory test
+  %include "post_mem16k.asm"
+
+  ; step 5
+  ; zero memory
+  %include "post_zero.asm"
+
+  ; step 6
+  ; initialize PIC
+  %include "post_pic.asm"
+
+  ; step 7
+  ; initialize the Stack Segment and SP
+  ; SS set to 0x0030
+  ; SP set to 0x0100
+  xor ax, ax
+  mov ax, 0x0030
+  mov ss, ax
+  mov sp, 0x0100
+  ; set up the bp
+  mov bp, sp
+
+  ; FIXME skipping test of PIC
+
+  ; step 8
+  ; test PIT and set up timer 0
+  %include "post_pit.asm"
+
+  ; step 9
+  ; init/start UART
+  %include "post_uart.asm"
+
+  ; step 10
+  ; store total RAM in BDA
+  ; set DS to 0x0000
+  xor ax, ax
+  mov ds, ax
+  ; set the total RAM size
+  mov word [ds:BDA_RAM], RAM_SIZE
+
+  ; step 11
+  ; additional RAM test
+  %include "post_mem.asm"
 
   ; we don't care about waiting because we're going to halt anyway
+halt:
   hlt
+  jmp halt
 
 
+  ; functions
+  %include "bios_fn.asm"
+
+  ; data area for the BIOS
+  %include "bios_data.asm"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Set up the reset vector                                                      ;
