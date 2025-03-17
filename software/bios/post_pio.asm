@@ -163,8 +163,8 @@ POST_PIO_LCD_SLCD_ETUP:
   out dx, al
 
 POST_PIO_LCD_CULCD_RSOR:
-  ; display on; cursor on; blink off
-  mov al, 0b00001110
+  ; display on; cursor off; blink off
+  mov al, 0b00001100
   mov dx, PIO_PORTB
   out dx, al
   ; clear LCD_RS/LCD_RW/LCD_E bits
@@ -244,7 +244,7 @@ POST_PIO_LCD_INC:
   mov dx, PIO_CTRL
   out dx, al
 
-POST_PIO_LCD_CLLCD_EAR:
+POST_PIO_LCD_LCD_CLEAR:
   ; Clear display
   mov al, 0b00000001
   mov dx, PIO_PORTB

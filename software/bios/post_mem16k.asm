@@ -8,6 +8,7 @@ POST_MEMCHECK16K:
   
   ; Do first 16KiB separately so we can use it for the stack once it is verified
   mov si, 0x0000
+  mov di, 0x4000
 
   ; we're going to test AA, 55, 00, FF, 01, 02, 04, 08, 10, 20, 40, 80
   ; This is stored in "memcheck_patterns" in the BIOS data
@@ -49,10 +50,9 @@ POST_MEMCHECK16K:
 
   ; increment the address
   inc si
-
+  cmp si, di
   ; check if we have reached the end of the first 16KiB
-  ; there will be a carry if we have
-  jnc .memcheck_loop
+  jb .memcheck_loop
 
   ; halt
   jmp .memcheck_done

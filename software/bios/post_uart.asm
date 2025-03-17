@@ -32,4 +32,6 @@ POST_UART:
   mov al, 0b00100010
   out dx, al
 
+  ; hide cursor
+  call fn_uart_hide_cursor
   ; FIXME test the UART with loopback

@@ -32,7 +32,7 @@ reset:
 
   ; step 5
   ; zero memory
-  %include "post_zero.asm"
+  ; %include "post_zero.asm"
 
   ; step 6
   ; initialize PIC
@@ -70,6 +70,17 @@ reset:
   ; step 11
   ; additional RAM test
   %include "post_mem.asm"
+
+  ; DEBUG print D for done
+  mov al, 0x40
+  call fn_lcd_move_cursor
+  mov al, 'D'
+  call fn_print_lcd_char
+
+  mov ax, 0x0102
+  call fn_uart_move_cursor
+  mov al, 'D'
+  call fn_uart_print_char
 
   ; we don't care about waiting because we're going to halt anyway
 halt:

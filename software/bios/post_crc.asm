@@ -86,3 +86,70 @@ POST_CRC:
   jmp .halt
 
 .done:
+  ; set the data segment to 0xF000
+  mov ax, 0xF000
+  mov ds, ax
+
+  mov si, crc_passed
+
+  ; print that the CRC check passed
+.crc_passes_loop:
+  lodsb
+  cmp al, 0
+  jz .done_crc
+
+  ; write the character to the LCD
+  mov dx, PIO_PORTB
+  out dx, al
+  ; set LCD_RS bit to send data
+  mov al, LCD_RS
+  mov dx, PIO_PORTC
+  out dx, al
+  ; set LCD_E bit to send data
+  mov al, LCD_RS | LCD_E
+  out dx, al
+  ; clear LCD_E bit
+  mov al, LCD_RS
+  out dx, al
+  ; clear LCD_RS/LCD_RW/LCD_E bits
+  mov al, 0
+  out dx, al
+
+  ; wait for the LCD to process the instruction
+  ; set PORT B to input
+  mov al, 0b10000010
+  mov dx, PIO_CTRL
+  out dx, al
+.wait_lcd_p1:
+  mov al, LCD_RW
+  mov dx, PIO_PORTC
+  out dx, al
+  ; set LCD_E bit to send instruction
+  mov al, LCD_E | LCD_RW
+  out dx, al
+  ; read the busy flag
+  mov dx, PIO_PORTB
+  in al, dx
+  and al, 0x80
+  jne .wait_lcd_p1
+  mov al, 0
+  mov dx, PIO_PORTC
+  out dx, al
+  ; set PORT B back to output
+  mov al, 0b10000000
+  mov dx, PIO_CTRL
+  out dx, al
+
+  ; output 0s to PORT B
+  mov al, 0
+  mov dx, PIO_PORTB
+  out dx, al
+
+  ; output 0s to PORT C
+  mov al, 0
+  mov dx, PIO_PORTC
+  out dx, al
+  
+  jmp .crc_passes_loop
+
+.done_crc:

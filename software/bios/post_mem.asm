@@ -4,6 +4,31 @@ POST_MEM:
   
 
   call fn_clear_lcd
+  call fn_uart_clear_screen
+
+  ; set DS to the start of ROM
+  push ds
+  mov ax, 0xF000
+  mov ds, ax
+
+  ; print the static string of RAM checked at LCD offset 4
+  mov ax, 4
+  call fn_lcd_move_cursor
+  mov ax, memcheck_str
+  call fn_print_lcd_str
+  
+  mov ax, 0x0501
+  call fn_uart_move_cursor
+
+  mov ax, memcheck_str
+  call fn_uart_print_str
+  pop ds
+
+  ; move LCD to 0
+  xor al, al
+  call fn_lcd_move_cursor
+
+  call fn_uart_move_cursor_home
 
   ; get the size of the RAM
   ; set the ES to the start of RAM
@@ -15,13 +40,16 @@ POST_MEM:
   mov ds, ax
 
   mov cx, [es:BDA_RAM]
-  ; subtract the 64KB we already tested
-  sub cx, 0x40
+  ; subtract the 16KB we already tested
+  sub cx, 0x10
 
   ; store the number of 4k blocks in AX
-  mov ax, 16
+  mov ax, 4
 
+.loop:
+  ; ax contains the number of 4KiB blocks tested 
   push ax
+
   ; multiple number of blocks by 4KiB
   shl ax, 1
   shl ax, 1
@@ -29,22 +57,14 @@ POST_MEM:
   push cx
   
   call fn_print_lcd_int
-
-  mov ax, memcheck_str
-  call fn_print_lcd_str
-
-
-.loop:
+  call fn_uart_print_int
 
   ; pop cx
   pop cx
 
   ; see if we have more to do
   cmp cx, 0
-  je POST_MEM_DONE
-
-  ; subtract 4KiB from the size
-  sub cx, 4
+  je .done
 
   push cx
 
@@ -53,13 +73,57 @@ POST_MEM:
   mov bp, sp 
 
   ; push the start address (0x400 * [ES:BDA_RAM] - CX)
+  ; this is because it is the start = 1024 * (total RAM - 64)KB
   mov ax, [es:BDA_RAM]
   sub ax, cx
+  ; store this start in KB
+  mov bx, ax
   mov cx, 10
   shl ax, cl
+  push ax
 
+  ; push the data segment
+  ; restore the start in KB
+  mov ax, bx
+  mov cx, 6
+  ; shift this into the high byte
+  shl ax, cl
+  ; and out just the high nibble 
+  and ax, 0xF000
+  push ax  
 
+  ; call the function 
+  call fn_memcheck_4kb
 
+  ; pop the arguments 
+  add sp, 4
+
+  ; restore bp
+  pop bp 
+
+  ; pop cx
+  ; it contains KB to check
+  pop cx
+
+  ; subtract the 4Kb
+  sub cx, 4
+
+  ; move LCD to 0
+  xor al, al
+  call fn_lcd_move_cursor
+  call fn_uart_move_cursor_home
+
+  ; restore the number of 4KiB blocks tested
+  pop ax
+  ; increment by 1 for the next tested
+  inc ax 
+
+  ; jump back to the start of the loop
+  jmp .loop
+
+.done:
+  ; trampoline because the offset is too far
+  jmp POST_MEM_DONE
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -115,8 +179,11 @@ fn_memcheck_4kb:
   inc cx
   inc bx
 
-  ; check if cx < 12
-  cmp cx, 12
+  ; check if cx < 5
+  ; per https://retrocomputing.stackexchange.com/a/7872
+  ; we only need to check 5 patterns
+  ; 0x00, 0xFF, 0xAA, 0x55, 0x01
+  cmp cx, 5
   jl .memcheck_4kb_pattern_loop
 
   ; increment the address (use add not inc because it allows for CF to be set)
@@ -137,6 +204,12 @@ fn_memcheck_4kb:
   ret
 
 .memcheck_4kb_pattern_failed:
+  push ax
+  mov al, 0x40
+  call fn_lcd_move_cursor
+  pop ax
+  xor ah, ah
+  call fn_print_lcd_hex_int
 .halt:
   ; halt the CPU
   hlt  

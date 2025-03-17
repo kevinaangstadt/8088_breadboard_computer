@@ -35,22 +35,25 @@ POST_PIT:
   out dx, al
 
   
-  ; set ds to the start of the BIOS
-  mov ax, 0xF000
+  ; set ds to the interrupt vector
+  xor ax, ax
   mov ds, ax
 
   ; set the interrupt vector to our local handler
   ; IRQ0 is 0x08
-  ; we need to set the vector to 0xF000:POST_PIC_IRQ
+  ; we need to set the vector to 0xF000:POST_PIT_IRQ
   ; set up the timer interrupt
-  mov ax, POST_PIC_IRQ
-  mov [0x0020], ax
+  mov [0x0020], word POST_PIT_IRQ
   mov [0x0022], word 0xF000
+
+  ; set ds to the start of the BIOS
+  mov ax, 0xF000
+  mov ds, ax
 
   ; input clock is 4 MHz
   ; we want to test for 10ms
   ; so we need a count of 40000
-  mov al, 0b0010110
+  mov al, 0b00110110
   mov dx, TIMER_CTL 
   out dx, al
 
@@ -59,6 +62,10 @@ POST_PIT:
   out dx, al
   mov al, ah
   out dx, al
+
+  ; set ax to 1
+  xor ax, ax
+  inc ax
 
   ; enable interrupts
   sti
@@ -75,9 +82,9 @@ POST_PIT:
   mov dx, PIC_MASK
   in al, dx
   and al, 0b00000001
-  ; jmp to POST_PIC_FAILED if it is not disabled
+  ; jmp to POST_PIT_FAILED if it is not disabled
   cmp al, 0b00000001
-  je POST_PIC_FAILED
+  jne POST_PIT_FAILED
 
   ; check if the count is reasonable
   ; if it is, we can assume the timer is working
@@ -85,25 +92,25 @@ POST_PIT:
 
   ; the loop above takes about 17 cycles per iteration
   ; the clock for the CPU is 8 MHz, so this takes 0.002125 ms
-  ; we expect the square wave to go high in about 0.5 ms
-  ; so we expect 235 loop iterations to take place
+  ; we expect the square wave to go high in about 10 ms
+  ; so we expect 4706 loop iterations to take place
 
-  ; CX should be around 0xFF14 when we trigger
-  ; check that AX is close to 0xFF14
+  ; CX should be around 0xFFFF - 4706 = 0xED9D when we trigger
+  ; we'll allow 5% error (235 iterations)
 
-  ; let's say 0xFF30 is too fast
-  cmp ax, 0xFF30
-  jge POST_PIC_FAILED
-  ; let's say 0xFF00 is too slow
-  cmp ax, 0xFF00
-  jle POST_PIC_FAILED
+  ; check if it is too fast
+  cmp ax, 0xFFFF - 4706 + 235
+  jge POST_PIT_FAILED
+  ; check if it is too slow
+  cmp ax, 0xFFFF - 4706 - 235
+  jle POST_PIT_FAILED
   ; if we get here, the timer is working
   ; we can assume the timer is working
 
-  ; set up CNT_A for a 18.2 Hz square wave
+  ; set up CNT_A for a ~61Hz square wave
   ; input clock is 4 MHz
-  ; we want a count of 21818
-  mov ax, 21818
+  ; we want a count of 65536 (this is the slowest we can go)
+  mov ax, 65536
   mov dx, CNT_A
   out dx, al
   mov al, ah
@@ -111,9 +118,28 @@ POST_PIT:
 
   jmp POST_PIC_DONE
   
-POST_PIC_IRQ:
+POST_PIT_IRQ:
+  ; INTR signal takes about 61 clock cycles
+  ; check if this is the first time
+  ; check if ax is 1
+  cmp ax, 1   ; 4 cycles
+  jne .done   ; 4 cycles (fail)
+
+  ; the is first timer interrupt
+  ; reset the count to 
+  ; This portion of the IRQ takes about 99 cycles
+  mov cx, 0xFFFF - 10   ; 4 cycles
+  ; mark that not the first time
+  dec ax  ; 2 cycles
+  iret    ; 24 cycles
+
+.done:
   ; store current count in ax
   mov ax, cx
+
+  ; set cx to 1
+  xor cx, cx
+  inc cx
 
   ; disable IRQ0
   mov dx, PIC_MASK
@@ -123,25 +149,11 @@ POST_PIC_IRQ:
 
   iret
 
-POST_PIC_FAILED:
-  ; print an F to the LCD
-  mov al, 'F'
-  ; write the character to the LCD
-  mov dx, PIO_PORTB
-  out dx, al
-  ; set RS bit to send data
-  mov al, LCD_RS
-  mov dx, PIO_PORTC
-  out dx, al
-  ; set E bit to send data
-  mov al, LCD_RS | LCD_E
-  out dx, al
-  ; clear E bit
-  mov al, LCD_RS
-  out dx, al
-  ; clear RS/LCD_RW/LCD_E bits
-  mov al, 0
-  out dx, al
+POST_PIT_FAILED:
+  call fn_print_lcd_hex_int
+  ; print an T to the LCD (timer failed)
+  mov al, 'T'
+  call fn_print_lcd_char
 
   ; long beep
   ; enable the speaker
@@ -158,8 +170,8 @@ POST_PIC_FAILED:
   mov dx, PIO_PORTA
   out dx, al
 
-  ; wait about 0.5 seconds
-  mov cx, 0x7FFF
+  ; wait about 1 second
+  mov cx, 0xFFFF
 .loop2:
   loop .loop2
 
