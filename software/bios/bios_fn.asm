@@ -1,6 +1,15 @@
 ; BIOS functions
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function to halt the machine                                                 ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_halt:
+  ; halt the machine
+  cli 
+  hlt 
+  jmp fn_halt  
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; function clear_lcd                                                           ;
 ; clear the LCD                                                                ;  
 ; input: none                                                                  ;
@@ -426,6 +435,45 @@ fn_uart_print_int:
   ret
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; UART Print int as hex function                                               ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_uart_print_hex_int:
+  ; ax contains the int. print it as hex digits
+  push bx
+  push cx  
+  
+  mov bx, 4
+  mov cx, 12
+
+.loop:
+  push ax
+  shr ax, cl
+  and ax, 0x0F
+
+  cmp ax, 10
+  jb .print_digit
+  add al, 'A' - '0' - 10
+
+.print_digit:
+  add al, '0'
+  call fn_uart_print_char
+
+  ; restore original number
+  pop ax 
+
+  ; decrement the shift
+  sub cx, 4
+  ; decrement digits
+  dec bx
+
+  ; jump if digits left
+  jnz .loop
+  
+  pop cx
+  pop bx
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; UART clear screen function                                                   ;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 fn_uart_clear_screen:
@@ -510,4 +558,282 @@ fn_uart_show_cursor:
   call fn_uart_print_char
   mov al, 'h'
   call fn_uart_print_char
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; UART go to beginning of next line function                                   ;  
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_uart_newline:
+  ; move cursor to the next line
+  ; ESC[1E
+  mov al, UART_ESC
+  call fn_uart_print_char
+  mov al, '['
+  call fn_uart_print_char
+  mov al, '1'
+  call fn_uart_print_char
+  mov al, 'E'
+  call fn_uart_print_char
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; funciton CFInit                                                              ;
+; initializes the CF card                                                      ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CFInit:
+  ; reset the CF card
+  ; mov dx, CFREG7
+  ; mov al, 0x04
+  ; out dx, al
+  call CFWaitReady
+
+  ; reset the CF card
+  mov dx, CFREG7
+  mov al, 0x04
+  out dx, al
+  call CFWaitReady
+
+  ; LBA3=0, Master, Mode=LBA
+  mov dx, CFREG6 
+  mov al, 0xE0
+  out dx, al
+
+  ; 8-bit transfers 
+  mov dx, CFREG1
+  mov al, 0x01 
+  out dx, al
+
+  ; set feature command 
+  mov dx, CFREG7 
+  mov al, 0xEF
+  out dx, al
+
+  call CFWaitReady
+  call CFCheckError
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function CFWaitReady                                                         ;
+; waits for the CF card to be ready                                            ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CFWaitReady:
+  mov dx, CFREG7
+  in al, dx
+  ; push ax
+  ; call print_hex 
+  ; pop ax
+  and al, 0x80
+  cmp al, 0x00
+  jne CFWaitReady
+  ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function CFCheckError                                                        ;
+; checks for errors in the CF card                                             ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CFCheckError:
+  mov dx, CFREG7
+  in al, dx
+  ; mask error bit
+  and al, 0x01
+  cmp al, 0x00 
+  je CFNError
+
+  ; set DS to ROM
+  mov ax, 0xF000
+  mov ds, ax
+
+  call fn_uart_newline
+  mov ax, CF_ERROR
+  call fn_uart_print_str
+
+  mov dx, CFREG1
+  in al, dx
+  
+  call fn_uart_print_hex_int
+  call fn_halt
+
+CFNError:
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function CFRead                                                              ;
+; reads data from the CF card                                                  ;
+; reads into [ds:di]                                                           ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CFRead:
+  push cx
+  xor cx, cx
+.loop:
+  call CFWaitReady
+  call CFCheckError
+  mov dx, CFREG7
+  in al, dx
+  and al, 0x08  ; filter out DRQ
+  cmp al, 0x08
+  jne .done
+  mov dx, CFREG0
+  in al, dx
+  mov [ds:di], al 
+  inc di
+  inc cx
+  jmp .loop
+.done:
+  mov ax, cx
+  pop cx
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; function CFInfo                                                              ;
+; prints information about the CF card                                         ;
+; DS should be the segment where the data should go                            ;
+; DI should be the offset for the start of CFINFO 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+CFInfo:
+  call CFWaitReady
+  call CFCheckError
+
+  mov dx, CFREG7
+  mov al, 0xEC ; drive ID command
+  out dx, al
+
+  ; backup di
+  push di
+
+  call CFRead 
+
+  ; print serial header
+  mov ax, CF_str_serial
+  call fn_print_bios_str
+
+  ; grab a copy of di
+  pop ax
+  push ax
+  add ax, 20
+  mov si, ax
+  mov ax, 20
+  call fn_cf_print_n_str
+  call fn_uart_newline
+
+  ; print firmware rev
+  mov ax, CF_str_fw
+  call fn_print_bios_str
+
+  ; grab a copy of di
+  pop ax
+  push ax
+  add ax, 46
+  mov si, ax
+  mov ax, 8
+  call fn_cf_print_n_str
+  call fn_uart_newline
+
+  ; print model number 
+  mov ax, CF_str_model
+  call fn_print_bios_str
+
+  ; grab a copy of di
+  pop ax
+  add ax, 54
+  mov si, ax
+  mov ax, 40
+  call fn_cf_print_n_str
+  call fn_uart_newline
+
+  ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; BIOS String Print Function                                             ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_print_bios_str:
+  push ds
+  push ax
+  mov ax, 0xF000
+  mov ds, ax
+  pop ax
+  call fn_uart_print_str
+  pop ds
+  ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CF Print N String Function                                                   ;
+; Big Endian string print function                                             ;  
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_cf_print_n_str:
+  ; si contains the address of the string
+  ; ax contains the count of characters
+  push cx
+  ; loop through the string
+  mov cx, ax
+  ; divide by 2 because we want to print 2 characters at a time
+  shr cx, 1
+.loop:
+  ; load the character into AL
+  lodsw
+  ; we just loaded two bytes
+  ; we need to print ah then al
+  push ax
+  mov al, ah
+  call fn_uart_print_char
+  pop ax
+  call fn_uart_print_char
+  loop .loop
+
+  pop cx
+  ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; CF Function Read Sector                                                      ;
+; ax : lower 16 bit of the LBA address                                         ;
+; bx : upper 16 bit of the LBA address                                         ;
+; ds:di : address to read to                                                   ;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+fn_cf_read_sector:
+  ; set the LBA address
+
+  ; LBA 0
+  mov dx, CFREG3
+  out dx, al
+
+  ; LBA 1
+  mov dx, CFREG4
+  mov al, ah
+  out dx, al
+
+  ; LBA 2
+  mov dx, CFREG5
+  mov al, bl
+  out dx, al
+
+  ; LBA 3
+  mov dx, CFREG6
+  mov al, bh
+  ; FILTER out the LBA bits
+  and al, 0x0F
+  ; MODE LBA, Master
+  or al, 0xE0
+  out dx, al
+
+  ; read one sector
+  mov dx, CFREG2
+  mov al, 1
+  out dx, al
+
+  ; set the read command
+  mov dx, CFREG7
+  mov al, 0x20
+  out dx, al
+
+  ; wait for the CF card to be ready
+  call CFWaitReady
+  call CFCheckError
+
+  ; read the data
+  call CFRead
+
+  call CFCheckError
+
   ret

@@ -1,10 +1,6 @@
 ; BIOS excerpt for testing the remaining parts of memory
 
 POST_MEM:
-  
-
-  call fn_clear_lcd
-  call fn_uart_clear_screen
 
   ; set DS to the start of ROM
   push ds
@@ -31,8 +27,8 @@ POST_MEM:
   call fn_uart_move_cursor_home
 
   ; get the size of the RAM
-  ; set the ES to the start of RAM
-  xor ax, ax
+  ; set the ES to the BDA segment
+  mov ax, 0x0040
   mov es, ax
 
   ; set the DS to the BIOS
@@ -216,3 +212,5 @@ fn_memcheck_4kb:
 
 
 POST_MEM_DONE:
+  ; print a newline
+  call fn_uart_newline

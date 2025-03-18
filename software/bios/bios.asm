@@ -61,32 +61,45 @@ reset:
 
   ; step 10
   ; store total RAM in BDA
-  ; set DS to 0x0000
-  xor ax, ax
+  ; set DS to 0x0040
+  mov ax, 0x0040
   mov ds, ax
   ; set the total RAM size
   mov word [ds:BDA_RAM], RAM_SIZE
 
   ; step 11
+  ; clear the screens
+  call fn_clear_lcd
+  call fn_uart_clear_screen
+  call fn_uart_move_cursor_home
+
+  ; step 12
   ; additional RAM test
   %include "post_mem.asm"
 
-  ; DEBUG print D for done
-  mov al, 0x40
-  call fn_lcd_move_cursor
-  mov al, 'D'
-  call fn_print_lcd_char
+  ; step 13 
+  ; interrupt vectors
+  %include "post_int.asm"
 
-  mov ax, 0x0102
-  call fn_uart_move_cursor
-  mov al, 'D'
-  call fn_uart_print_char
+  ; step 14
+  ; detect CF card
+  %include "post_cf.asm"
+
+  ; step 15
+  ; short beep
+  %include "post_beep.asm"
+
+  ; step 16
+  ; try to boot
+  %include "post_boot.asm"
 
   ; we don't care about waiting because we're going to halt anyway
 halt:
   hlt
   jmp halt
 
+  ; IRQ handlers
+  %include "bios_irq.asm"
 
   ; functions
   %include "bios_fn.asm"
